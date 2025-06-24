@@ -1,1 +1,695 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><link rel="icon" href="/calendario/favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><meta name="description" content="Aplicativo de Calendário Pessoal React"/><link rel="apple-touch-icon" href="/calendario/logo192.png"/><link rel="manifest" href="/calendario/manifest.json"/><title>Meu Calendário Pessoal</title><script defer="defer" src="/calendario/static/js/main.00b54026.js"></script></head><body><noscript>Você precisa habilitar o JavaScript para rodar este aplicativo.</noscript><div id="root"></div></body></html>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendário Pessoal</title>
+    <!-- Incluindo Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Incluindo React e ReactDOM -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <!-- Incluindo Babel para transpilar JSX no navegador -->
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <!-- Estilo para a fonte Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-100 to-indigo-200">
+    <!-- Onde a aplicação React será renderizada -->
+    <div id="root"></div>
+
+    <!-- O Babel irá transpilar e executar o código React dentro desta tag -->
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // IndexedDB Utility - indexedDBService.js
+        const DB_NAME = 'calendarDB';
+        const STORE_NAME = 'tasks';
+        const DB_VERSION = 1;
+
+        /**
+         * Abre o banco de dados IndexedDB.
+         * @returns {Promise<IDBDatabase>} Uma promessa que resolve com a instância do banco de dados.
+         */
+        const openDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+
+                request.onsuccess = (event) => {
+                    resolve(event.target.result);
+                };
+
+                request.onerror = (event) => {
+                    console.error('Erro ao abrir o IndexedDB:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        /**
+         * Adiciona uma nova tarefa ao IndexedDB.
+         * @param {object} task - O objeto da tarefa a ser adicionado.
+         * @returns {Promise<object>} Uma promessa que resolve com a tarefa adicionada (com seu ID).
+         */
+        const addTask = async (task) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.add(task);
+
+                request.onsuccess = (event) => {
+                    resolve({ ...task, id: event.target.result });
+                };
+
+                request.onerror = (event) => {
+                    console.error('Erro ao adicionar tarefa:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        /**
+         * Recupera todas as tarefas do IndexedDB.
+         * @returns {Promise<Array<object>>} Uma promessa que resolve com um array de todas as tarefas.
+         */
+        const getAllTasks = async () => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.getAll();
+
+                request.onsuccess = (event) => {
+                    resolve(event.target.result);
+                };
+
+                request.onerror = (event) => {
+                    console.error('Erro ao obter todas as tarefas:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        /**
+         * Atualiza uma tarefa existente no IndexedDB.
+         * @param {object} task - O objeto da tarefa atualizado.
+         * @returns {Promise<void>} Uma promessa que resolve quando a tarefa é atualizada.
+         */
+        const updateTask = async (task) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put(task);
+
+                request.onsuccess = () => {
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error('Erro ao atualizar tarefa:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        /**
+         * Exclui uma tarefa do IndexedDB.
+         * @param {number} taskId - O ID da tarefa a ser excluída.
+         * @returns {Promise<void>} Uma promessa que resolve quando a tarefa é excluída.
+         */
+        const deleteTask = async (taskId) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(taskId);
+
+                request.onsuccess = () => {
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error('Erro ao excluir tarefa:', event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        };
+
+
+        // Componente CalendarGrid - CalendarGrid.js
+        const CalendarGrid = ({ currentDate, selectedDate, tasks, onDaySelect }) => {
+            const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+            const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay(); // 0 para Domingo, 1 para Segunda
+
+            const today = new Date();
+            const isToday = (year, month, day) => {
+                // Normaliza as datas para ignorar a hora
+                const todayDate = new Date();
+                todayDate.setHours(0, 0, 0, 0);
+                const compareDate = new Date(year, month, day);
+                compareDate.setHours(0, 0, 0, 0);
+                return todayDate.getTime() === compareDate.getTime();
+            };
+
+            const days = [];
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                days.push(null);
+            }
+            for (let i = 1; i <= daysInMonth; i++) {
+                days.push(i);
+            }
+
+            const weekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+            const hasTasksForDay = (year, month, day) => {
+                return tasks.some(task => {
+                    const [taskYear, taskMonth, taskDay] = task.date.split('-').map(Number);
+                    return taskYear === year && (taskMonth - 1) === month && taskDay === day;
+                });
+            };
+
+            return (
+                <div className="p-4 bg-white shadow-lg rounded-2xl">
+                    <div className="grid grid-cols-7 gap-2 mb-2 text-center font-bold text-gray-700">
+                        {weekdays.map(day => (
+                            <div key={day}>{day}</div>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-2">
+                        {days.map((day, index) => {
+                            const currentDayFullDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+                            const isSelected = selectedDate &&
+                                selectedDate.getFullYear() === currentDate.getFullYear() &&
+                                selectedDate.getMonth() === currentDate.getMonth() &&
+                                selectedDate.getDate() === day;
+                            const isDayToday = day !== null && isToday(currentDate.getFullYear(), currentDate.getMonth(), day);
+                            const hasTasks = day && hasTasksForDay(currentDate.getFullYear(), currentDate.getMonth(), day);
+
+                            return (
+                                <div
+                                    key={index}
+                                    className={`
+                                        p-4 text-center rounded-xl cursor-pointer transition-all duration-200
+                                        relative flex flex-col justify-between items-center h-28 sm:h-32
+                                        ${
+                                            day === null
+                                            ? 'bg-gray-100' // Dia vazio
+                                            : isSelected
+                                            ? 'bg-blue-500 text-white shadow-md' // Dia selecionado
+                                            : isDayToday
+                                            ? 'bg-indigo-100 text-indigo-800 font-bold border-2 border-indigo-300' // Dia de hoje (não selecionado)
+                                            : hasTasks
+                                            ? 'bg-yellow-100 border-yellow-300 hover:bg-gray-200' // Dia com tarefas
+                                            : 'bg-gray-50 hover:bg-gray-200 border border-gray-200 shadow-sm' // Dia padrão
+                                        }
+                                    `}
+                                    onClick={() => day !== null && onDaySelect(currentDayFullDate)}
+                                >
+                                    <span className="font-bold text-lg">{day}</span>
+                                    {hasTasks && day !== null && !isSelected && (
+                                        <span className="w-3 h-3 bg-purple-500 rounded-full mt-2 block"></span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+
+        // Componente TaskView - TaskView.js
+        const TaskView = ({ selectedDate, tasksForSelectedDay, onAddTask, onDeleteTask, onUpdateTask }) => {
+            const [taskText, setTaskText] = useState('');
+            const [taskTime, setTaskTime] = useState('');
+            const [editingTask, setEditingTask] = useState(null);
+
+            useEffect(() => {
+                if (!selectedDate) {
+                    setTaskText('');
+                    setTaskTime('');
+                    setEditingTask(null);
+                }
+            }, [selectedDate]);
+
+            const handleAddTask = () => {
+                if (taskText.trim() === '') return;
+
+                const newTask = {
+                    date: selectedDate.toISOString().split('T')[0],
+                    description: taskText.trim(),
+                    time: taskTime.trim() !== '' ? taskTime.trim() : null,
+                };
+
+                if (editingTask) {
+                    onUpdateTask({ ...editingTask, ...newTask });
+                    setEditingTask(null);
+                } else {
+                    onAddTask(newTask);
+                }
+
+                setTaskText('');
+                setTaskTime('');
+            };
+
+            const handleEditClick = (task) => {
+                setTaskText(task.description);
+                setTaskTime(task.time || '');
+                setEditingTask(task);
+            };
+
+            const sortedTasks = [...tasksForSelectedDay].sort((a, b) => {
+                if (!a.time && !b.time) return 0;
+                if (!a.time) return 1;
+                if (!b.time) return -1;
+                return a.time.localeCompare(b.time);
+            });
+
+            return (
+                <div className="p-6 bg-white shadow-lg rounded-2xl flex flex-col gap-4">
+                    <h2 className="text-2xl font-semibold text-gray-800">
+                        Tarefas para {selectedDate ? selectedDate.toLocaleDateString('pt-BR') : 'Selecione um dia'}
+                    </h2>
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <input
+                            type="text"
+                            className="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            placeholder="Descrição da tarefa"
+                            value={taskText}
+                            onChange={(e) => setTaskText(e.target.value)}
+                        />
+                        <input
+                            type="time"
+                            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={taskTime}
+                            onChange={(e) => setTaskTime(e.target.value)}
+                        />
+                        <button
+                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-lg shadow-md hover:from-blue-600 hover:to-blue-700 transition-all duration-300 transform hover:scale-105"
+                            onClick={handleAddTask}
+                        >
+                            {editingTask ? 'Atualizar Tarefa' : 'Adicionar Tarefa'}
+                        </button>
+                    </div>
+
+                    {sortedTasks.length === 0 ? (
+                        <p className="text-gray-600 italic">Nenhuma tarefa para este dia.</p>
+                    ) : (
+                        <ul className="space-y-3">
+                            {sortedTasks.map((task) => (
+                                <li key={task.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
+                                    <div className="flex-grow">
+                                        <p className="font-medium text-gray-800">{task.description}</p>
+                                        {task.time && (
+                                            <p className="text-sm text-blue-600 font-semibold mt-1 flex items-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l3 3a1 1 0 001.414-1.414L11 10.586V6z" clipRule="evenodd" />
+                                                </svg>
+                                                Alerta: {task.time}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="flex space-x-2">
+                                        <button
+                                            className="p-2 text-blue-500 hover:text-blue-700 rounded-full hover:bg-blue-100 transition-colors"
+                                            onClick={() => handleEditClick(task)}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.38-2.828-2.829z" />
+                                            </svg>
+                                        </button>
+                                        <button
+                                            className="p-2 text-red-500 hover:text-red-700 rounded-full hover:bg-red-100 transition-colors"
+                                            onClick={() => onDeleteTask(task.id)}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 11-2 0v6a1 1 0 112 0V8z" clipRule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            );
+        };
+
+        // Componente AllTasksModal - AllTasksModal.js
+        const AllTasksModal = ({ tasksForCurrentMonth, onClose, onDeleteTask, onUpdateTask }) => {
+            const [editingTaskInModal, setEditingTaskInModal] = useState(null);
+            const [editTaskText, setEditTaskText] = useState('');
+            const [editTaskTime, setEditTaskTime] = useState('');
+
+            const groupedTasks = tasksForCurrentMonth.reduce((acc, task) => {
+                const date = task.date;
+                if (!acc[date]) {
+                    acc[date] = [];
+                }
+                acc[date].push(task);
+                return acc;
+            }, {});
+
+            const sortedDates = Object.keys(groupedTasks).sort((a, b) => {
+                const [yearA, monthA, dayA] = a.split('-').map(Number);
+                const [yearB, monthB, dayB] = b.split('-').map(Number);
+                const dateObjA = new Date(yearA, monthA - 1, dayA);
+                const dateObjB = new Date(yearB, monthB - 1, dayB);
+                return dateObjA - dateObjB;
+            });
+
+            const handleEditClickInModal = (task) => {
+                setEditingTaskInModal(task);
+                setEditTaskText(task.description);
+                setEditTaskTime(task.time || '');
+            };
+
+            const handleUpdateTaskInModal = () => {
+                if (!editingTaskInModal || editTaskText.trim() === '') return;
+
+                const updatedTask = {
+                    ...editingTaskInModal,
+                    description: editTaskText.trim(),
+                    time: editTaskTime.trim() !== '' ? editTaskTime.trim() : null,
+                };
+                onUpdateTask(updatedTask);
+                setEditingTaskInModal(null);
+                setEditTaskText('');
+                setEditTaskTime('');
+            };
+
+            const handleCancelEdit = () => {
+                setEditingTaskInModal(null);
+                setEditTaskText('');
+                setEditTaskTime('');
+            };
+
+            return (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 p-2 text-gray-500 hover:text-gray-700 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                        <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Tarefas do Mês</h2>
+
+                        {sortedDates.length === 0 ? (
+                            <p className="text-gray-600 italic text-center">Nenhuma tarefa encontrada para este mês.</p>
+                        ) : (
+                            <div className="space-y-6">
+                                {sortedDates.map(date => {
+                                    const [year, month, day] = date.split('-').map(Number);
+                                    const displayDate = new Date(year, month - 1, day);
+
+                                    return (
+                                        <div key={date} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                                            <h3 className="text-xl font-semibold text-gray-700 mb-3 border-b pb-2">
+                                                {displayDate.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                            </h3>
+                                            <ul className="space-y-2">
+                                                {groupedTasks[date].sort((a, b) => {
+                                                    if (!a.time && !b.time) return 0;
+                                                    if (!a.time) return 1;
+                                                    if (!b.time) return -1;
+                                                    return a.time.localeCompare(b.time);
+                                                }).map(task => (
+                                                    <li key={task.id} className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm border border-gray-100">
+                                                        {editingTaskInModal && editingTaskInModal.id === task.id ? (
+                                                            <div className="flex-grow flex flex-col sm:flex-row gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    className="flex-grow p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 text-gray-800"
+                                                                    value={editTaskText}
+                                                                    onChange={(e) => setEditTaskText(e.target.value)}
+                                                                />
+                                                                <input
+                                                                    type="time"
+                                                                    className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 text-gray-800"
+                                                                    value={editTaskTime}
+                                                                    onChange={(e) => setEditTaskTime(e.target.value)}
+                                                                />
+                                                                <div className="flex space-x-2">
+                                                                    <button
+                                                                        className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                                                                        onClick={handleUpdateTaskInModal}
+                                                                    >
+                                                                        Salvar
+                                                                    </button>
+                                                                    <button
+                                                                        className="p-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 transition-colors"
+                                                                        onClick={handleCancelEdit}
+                                                                    >
+                                                                        Cancelar
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex-grow">
+                                                                <p className="font-medium text-gray-800">{task.description}</p>
+                                                                {task.time && (
+                                                                    <p className="text-sm text-blue-600 font-semibold mt-1 flex items-center">
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l3 3a1 1 0 001.414-1.414L11 10.586V6z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                        Alerta: {task.time}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        {!editingTaskInModal || editingTaskInModal.id !== task.id ? (
+                                                            <div className="flex space-x-2">
+                                                                <button
+                                                                    className="p-2 text-blue-500 hover:text-blue-700 rounded-full hover:bg-blue-100 transition-colors"
+                                                                    onClick={() => handleEditClickInModal(task)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.38-2.828-2.829z" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button
+                                                                    className="p-2 text-red-500 hover:text-red-700 rounded-full hover:bg-red-100 transition-colors"
+                                                                    onClick={() => onDeleteTask(task.id)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 11-2 0v6a1 1 0 112 0V8z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        ) : null}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Componente principal da Aplicação - App.js
+        function App() {
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [selectedDate, setSelectedDate] = useState(null);
+            const [allTasks, setAllTasks] = useState([]);
+            const [message, setMessage] = useState('');
+            const [showAllTasksModal, setShowAllTasksModal] = useState(false);
+
+            const showMessage = (msg) => {
+                setMessage(msg);
+                setTimeout(() => setMessage(''), 3000);
+            };
+
+            useEffect(() => {
+                const loadTasks = async () => {
+                    try {
+                        const tasks = await getAllTasks();
+                        setAllTasks(tasks);
+                    } catch (error) {
+                        console.error('Falha ao carregar tarefas:', error);
+                        showMessage('Erro ao carregar tarefas.');
+                    }
+                };
+                loadTasks();
+            }, []);
+
+            const tasksForSelectedDay = selectedDate
+                ? allTasks.filter(task => {
+                    const [taskYear, taskMonth, taskDay] = task.date.split('-').map(Number);
+                    return (
+                        taskYear === selectedDate.getFullYear() &&
+                        (taskMonth - 1) === selectedDate.getMonth() &&
+                        taskDay === selectedDate.getDate()
+                    );
+                })
+                : [];
+
+            const tasksForCurrentMonth = allTasks.filter(task => {
+                const [taskYear, taskMonth] = task.date.split('-').map(Number);
+                return (
+                    taskYear === currentDate.getFullYear() &&
+                    (taskMonth - 1) === currentDate.getMonth()
+                );
+            });
+
+            const goToPreviousMonth = () => {
+                setCurrentDate(prevDate => new Date(prevDate.getFullYear(), prevDate.getMonth() - 1, 1));
+                setSelectedDate(null);
+            };
+
+            const goToNextMonth = () => {
+                setCurrentDate(prevDate => new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 1));
+                setSelectedDate(null);
+            };
+
+            const handleDaySelect = (date) => {
+                setSelectedDate(date);
+            };
+
+            const handleAddTask = useCallback(async (newTask) => {
+                try {
+                    const addedTask = await addTask(newTask);
+                    setAllTasks(prevTasks => [...prevTasks, addedTask]);
+                    showMessage('Tarefa adicionada com sucesso!');
+                } catch (error) {
+                    console.error('Falha ao adicionar tarefa:', error);
+                    showMessage('Erro ao adicionar tarefa.');
+                }
+            }, []);
+
+            const handleUpdateTask = useCallback(async (updatedTask) => {
+                try {
+                    await updateTask(updatedTask);
+                    setAllTasks(prevTasks =>
+                        prevTasks.map(task => (task.id === updatedTask.id ? updatedTask : task))
+                    );
+                    showMessage('Tarefa atualizada com sucesso!');
+                } catch (error) {
+                    console.error('Falha ao atualizar tarefa:', error);
+                    showMessage('Erro ao atualizar tarefa.');
+                }
+            }, []);
+
+            const handleDeleteTask = useCallback(async (taskId) => {
+                try {
+                    await deleteTask(taskId);
+                    setAllTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+                    showMessage('Tarefa excluída com sucesso!');
+                    if (selectedDate && tasksForSelectedDay.length === 1 && tasksForSelectedDay[0].id === taskId) {
+                        setSelectedDate(null);
+                    }
+                } catch (error) {
+                    console.error('Falha ao excluir tarefa:', error);
+                    showMessage('Erro ao excluir tarefa.');
+                }
+            }, [selectedDate, tasksForSelectedDay]);
+
+            const currentMonthYear = currentDate.toLocaleDateString('pt-BR', {
+                month: 'long',
+                year: 'numeric',
+            });
+
+            return (
+                <div className="min-h-screen p-4 sm:p-8">
+                    <div className="container mx-auto max-w-4xl">
+                        <h1 className="text-4xl font-extrabold text-center text-gray-800 mb-8 drop-shadow-md">
+                            Seu Calendário Pessoal
+                        </h1>
+
+                        {message && (
+                            <div className="mb-4 p-3 bg-green-200 text-green-800 rounded-lg text-center font-medium shadow-sm">
+                                {message}
+                            </div>
+                        )}
+
+                        <div className="bg-white rounded-2xl shadow-xl p-6 mb-8">
+                            <div className="flex justify-between items-center mb-6">
+                                <button
+                                    className="p-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-full shadow-md hover:from-purple-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-110"
+                                    onClick={goToPreviousMonth}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+                                <h2 className="text-3xl font-bold text-gray-800 capitalize">
+                                    {currentMonthYear}
+                                </h2>
+                                <button
+                                    className="p-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-full shadow-md hover:from-purple-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-110"
+                                    onClick={goToNextMonth}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <CalendarGrid
+                                currentDate={currentDate}
+                                selectedDate={selectedDate}
+                                tasks={allTasks}
+                                onDaySelect={handleDaySelect}
+                            />
+
+                            <div className="mt-6 text-center">
+                                <button
+                                    onClick={() => setShowAllTasksModal(true)}
+                                    className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-lg shadow-md hover:from-green-600 hover:to-green-700 transition-all duration-300 transform hover:scale-105"
+                                >
+                                    Visualizar Tarefas do Mês
+                                </button>
+                            </div>
+                        </div>
+
+                        {selectedDate && (
+                            <TaskView
+                                selectedDate={selectedDate}
+                                tasksForSelectedDay={tasksForSelectedDay}
+                                onAddTask={handleAddTask}
+                                onDeleteTask={handleDeleteTask}
+                                onUpdateTask={handleUpdateTask}
+                            />
+                        )}
+
+                        {showAllTasksModal && (
+                            <AllTasksModal
+                                tasksForCurrentMonth={tasksForCurrentMonth}
+                                onClose={() => setShowAllTasksModal(false)}
+                                onDeleteTask={handleDeleteTask}
+                                onUpdateTask={handleUpdateTask}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Renderiza o componente App no elemento 'root'
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
